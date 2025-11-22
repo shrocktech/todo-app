@@ -24,7 +24,11 @@ class TodoController extends Controller
             'title' => 'required|string|max:255',
         ]);
 
-        Todo::create($data + ['completed' => false]);
+        $todo = Todo::create($data + ['completed' => false]);
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'todo' => $todo]);
+        }
 
         return redirect()->route('todos.index')->with('success', 'Todo created.');
     }
@@ -37,7 +41,7 @@ class TodoController extends Controller
     public function update(Request $request, Todo $todo)
     {
         $data = $request->validate([
-            'title' => 'required|string|max:255',
+            'title' => 'sometimes|required|string|max:255',
             'completed' => 'sometimes|boolean',
         ]);
 

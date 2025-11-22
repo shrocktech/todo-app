@@ -33,58 +33,101 @@
         document.addEventListener('DOMContentLoaded', function () {
             const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
-            // Toggle completed
-            document.querySelectorAll('form.todo-toggle-form').forEach(function (form) {
-                const checkbox = form.querySelector('input[type="checkbox"][name="completed"]');
-                if (!checkbox) return;
+            // Helper to register event listeners for a single todo list item (li element)
+            function registerTodoItem(li) {
+                if (!li) return;
 
-                checkbox.addEventListener('change', function (ev) {
-                    const formData = new FormData();
-                    form.querySelectorAll('input[name], select[name], textarea[name]').forEach(function (el) {
-                        if (el.type === 'checkbox') {
-                            if (el.checked) formData.append(el.name, el.value);
-                            else formData.append(el.name, '0');
-                        } else {
-                            formData.append(el.name, el.value);
-                        }
-                    });
+                // Toggle form
+                const toggleForm = li.querySelector('form.todo-toggle-form');
+                if (toggleForm) {
+                    const checkbox = toggleForm.querySelector('input[type="checkbox"][name="completed"]');
+                    if (checkbox && !checkbox._hasListener) {
+                        checkbox._hasListener = true;
+                        checkbox.addEventListener('change', function (ev) {
+                            const form = toggleForm;
+                            const formData = new FormData();
+                            form.querySelectorAll('input[name], select[name], textarea[name]').forEach(function (el) {
+                                if (el.type === 'checkbox') {
+                                    if (el.checked) formData.append(el.name, el.value);
+                                    else formData.append(el.name, '0');
+                                } else {
+                                    formData.append(el.name, el.value);
+                                }
+                            });
 
-                    fetch(form.action, {
-                        method: 'POST',
-                        headers: {
-                            'X-CSRF-TOKEN': csrf,
-                            'X-Requested-With': 'XMLHttpRequest'
-                        },
-                        body: formData
-                    }).then(resp => resp.json()).then(data => {
-                        const li = form.closest('li');
-                        const titleEl = li ? li.querySelector('.todo-title') : null;
-                        if (data && data.success) {
-                            if (titleEl) {
-                                if (data.completed) titleEl.classList.add('completed');
-                                else titleEl.classList.remove('completed');
-                            }
-                            showToast('Saved', 'Todo updated', 'success');
-                        } else {
-                            checkbox.checked = !checkbox.checked;
-                            console.error('Toggle failed', data);
-                            showToast('Error', 'Could not update todo', 'danger');
-                        }
-                    }).catch(err => {
-                        checkbox.checked = !checkbox.checked;
-                        console.error('Toggle error', err);
-                        showToast('Network', 'Network error updating todo', 'danger');
+                            fetch(form.action, {
+                                method: 'POST',
+                                headers: {
+                                    'X-CSRF-TOKEN': csrf,
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                },
+                                body: formData
+                            }).then(resp => resp.json()).then(data => {
+                                    const id = form.closest('li') ? form.closest('li').getAttribute('data-todo-id') : null;
+                                    const items = id ? document.querySelectorAll('li[data-todo-id="' + id + '"]') : (form.closest('li') ? [form.closest('li')] : []);
+                                    if (data && data.success) {
+                                        items.forEach(function(li) {
+                                            const titleEl = li.querySelector('.todo-title');
+                                            const toggleCheckbox = li.querySelector('input[type="checkbox"][name="completed"]');
+                                            if (titleEl) {
+                                                if (data.completed) titleEl.classList.add('completed');
+                                                else titleEl.classList.remove('completed');
+                                            }
+                                            if (toggleCheckbox) toggleCheckbox.checked = data.completed;
+                                        });
+                                        showToast('Saved', 'Todo updated', 'success');
+                                    } else {
+                                        checkbox.checked = !checkbox.checked;
+                                        console.error('Toggle failed', data);
+                                        showToast('Error', 'Could not update todo', 'danger');
+                                    }
+                            }).catch(err => {
+                                    checkbox.checked = !checkbox.checked;
+                                    console.error('Toggle error', err);
+                                    showToast('Network', 'Network error updating todo', 'danger');
+                            });
+                        });
+                    }
+                }
+
+                // Delete form
+                const deleteForm = li.querySelector('form.todo-delete-form');
+                if (deleteForm && !deleteForm._hasListener) {
+                    deleteForm._hasListener = true;
+                    deleteForm.addEventListener('submit', function (ev) {
+                        ev.preventDefault();
+                        // No confirm dialog: schedule delete immediately (undo available)
+                        scheduleDelete(li, deleteForm);
                     });
-                });
-            });
+                }
+
+                // Edit button
+                const editBtn = li.querySelector('.todo-edit-btn');
+                if (editBtn && !editBtn._hasListener) {
+                    editBtn._hasListener = true;
+                    editBtn.addEventListener('click', function () {
+                        const title = editBtn.getAttribute('data-title') || '';
+                        const completed = editBtn.getAttribute('data-completed') === '1';
+                        currentAction = editBtn.getAttribute('data-action');
+                        if (titleInput) titleInput.value = title;
+                        if (completedInput) completedInput.checked = completed;
+                        if (bsModal) bsModal.show();
+                    });
+                }
+            }
+
+            // Register existing items
+            document.querySelectorAll('li[data-todo-id]').forEach(function(li) { registerTodoItem(li); });
 
             // Delete with undo: do not immediately call server; show undo toast and delay actual delete
             const pendingDeletes = new Map();
 
             function scheduleDelete(li, form) {
                 const id = li.getAttribute('data-todo-id');
-                // visually fade
-                li.classList.add('fading');
+                // find all matching items
+                const items = id ? Array.from(document.querySelectorAll('li[data-todo-id="' + id + '"]')) : [li];
+                // visually fade all
+                items.forEach(function(i) { i.classList.add('fading'); });
 
                 // show toast with Undo
                 const toastEl = createUndoToast(id);
@@ -101,16 +144,16 @@
                         body: formData
                     }).then(resp => resp.json()).then(data => {
                         if (data && data.success) {
-                            // remove element from DOM
-                            if (li) li.remove();
+                            // remove all matching elements from DOM
+                            items.forEach(function(i) { if (i) i.remove(); });
                             showToast('Deleted', 'Todo removed', 'success');
                         } else {
                             // restore on failure
-                            if (li) li.classList.remove('fading');
+                            items.forEach(function(i) { if (i) i.classList.remove('fading'); });
                             showToast('Error', 'Could not delete todo', 'danger');
                         }
                     }).catch(err => {
-                        if (li) li.classList.remove('fading');
+                        items.forEach(function(i) { if (i) i.classList.remove('fading'); });
                         showToast('Network', 'Network error deleting todo', 'danger');
                     }).finally(() => {
                         pendingDeletes.delete(id);
@@ -118,14 +161,18 @@
                     });
                 }, 5000); // 5s undo window
 
-                pendingDeletes.set(id, { timer, li, form, toastEl });
+                pendingDeletes.set(id, { timer, items, form, toastEl });
             }
 
             function cancelPendingDelete(id) {
                 const rec = pendingDeletes.get(id);
                 if (!rec) return false;
                 clearTimeout(rec.timer);
-                if (rec.li) rec.li.classList.remove('fading');
+                if (rec.items && Array.isArray(rec.items)) {
+                    rec.items.forEach(function(i) { if (i) i.classList.remove('fading'); });
+                } else if (rec.li) {
+                    rec.li.classList.remove('fading');
+                }
                 if (rec.toastEl) rec.toastEl.remove();
                 pendingDeletes.delete(id);
                 showToast('Restored', 'Delete undone', 'secondary');
@@ -155,15 +202,9 @@
                 return el;
             }
 
-            document.querySelectorAll('form.todo-delete-form').forEach(function (delForm) {
-                delForm.addEventListener('submit', function (ev) {
-                    ev.preventDefault();
-                    if (!confirm('Delete this todo?')) return;
-                    const li = delForm.closest('li');
-                    // schedule delete with undo
-                    scheduleDelete(li, delForm);
-                });
-            });
+            // Note: delete handlers are registered per-list-item in `registerTodoItem`.
+            // We intentionally do not add a global submit handler here to avoid duplicate prompts
+            // and duplicate scheduling of deletes.
 
             // Edit modal handling
             const editModalEl = document.getElementById('todoEditModal');
@@ -228,6 +269,81 @@
                 });
             }
 
+            // Quick-add form handling
+            const quickAddForm = document.getElementById('quick-add-form');
+            const quickAddInput = document.getElementById('quick-add-input');
+            if (quickAddForm && quickAddInput) {
+                quickAddForm.addEventListener('submit', function (ev) {
+                    ev.preventDefault();
+                    const title = quickAddInput.value.trim();
+                    if (!title) return;
+                    const formData = new FormData();
+                    formData.append('title', title);
+
+                    fetch('{{ route('todos.store') }}', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': csrf,
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: formData
+                    }).then(resp => resp.json()).then(data => {
+                        if (data && data.success && data.todo) {
+                            const todo = data.todo;
+                            // Build li markup (minimal, consistent with server-side markup)
+                            const liHtml = `
+                                <li class="list-group-item d-flex justify-content-between align-items-center" data-todo-id="${todo.id}">
+                                    <div>
+                                        <form method="POST" action="/todos/${todo.id}" style="display:inline" class="todo-toggle-form">
+                                            <input type="hidden" name="_method" value="PUT">
+                                            <input type="hidden" name="_token" value="${csrf}">
+                                            <input type="hidden" name="completed" value="0">
+                                            <input type="checkbox" name="completed" value="1" class="form-check-input me-2" style="vertical-align:middle;" ${todo.completed ? 'checked' : ''}>
+                                        </form>
+                                        <span class="todo-title ${todo.completed ? 'completed' : ''}">${escapeHtml(todo.title)}</span>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary todo-edit-btn" title="Edit" aria-label="Edit todo"
+                                            data-id="${todo.id}"
+                                            data-title="${escapeHtml(todo.title)}"
+                                            data-completed="${todo.completed ? 1 : 0}"
+                                            data-action="/todos/${todo.id}">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil" viewBox="0 0 16 16"><path d="M12.146.146a.5.5 0 0 1 .708 0l2.0 2a.5.5 0 0 1 0 .708l-9.793 9.793-2.5.5a.5.5 0 0 1-.606-.606l.5-2.5L12.146.146zM11.207 2L3 10.207V13h2.793L14 4.793 11.207 2z"/></svg>
+                                        </button>
+                                        <form method="POST" action="/todos/${todo.id}" style="display:inline" class="todo-delete-form">
+                                            <input type="hidden" name="_token" value="${csrf}">
+                                            <input type="hidden" name="_method" value="DELETE">
+                                            <button class="btn btn-sm btn-outline-danger" title="Delete" aria-label="Delete todo">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 5h4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H6a.5.5 0 0 1-.5-.5v-7zM14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 1 1 0-2H5l1-1h4l1 1h3.5a1 1 0 0 1 1 1z"/></svg>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </li>`;
+
+                            const list = document.querySelector('ul.list-group');
+                            if (list) {
+                                list.insertAdjacentHTML('afterbegin', liHtml);
+                                const newLi = list.querySelector('li[data-todo-id="' + todo.id + '"]');
+                                if (newLi) registerTodoItem(newLi);
+                            }
+
+                            quickAddInput.value = '';
+                            quickAddInput.focus();
+                        } else {
+                            showToast('Error', 'Could not create todo', 'danger');
+                        }
+                    }).catch(err => {
+                        console.error('Create error', err);
+                        showToast('Network', 'Network error creating todo', 'danger');
+                    });
+                });
+            }
+
+            // Helper to escape HTML for insertion
+            function escapeHtml(str) {
+                return (str + '').replace(/[&<>"']/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]; });
+            }
+
             // Tiny helper to show bootstrap toasts
             function showToast(title, body, variant = 'primary') {
                 const container = document.getElementById('toast-container');
@@ -251,27 +367,5 @@
 
         });
     </script>
-</body>
-</html>
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>To-Do App</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
-        <div class="container">
-            <a class="navbar-brand" href="{{ url('/') }}">To-Do App</a>
-        </div>
-    </nav>
-
-    <main>
-        @yield('content')
-    </main>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

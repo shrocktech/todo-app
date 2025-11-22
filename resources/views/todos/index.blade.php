@@ -8,7 +8,16 @@
         <div class="alert alert-success">{{ session('success') }}</div>
     @endif
 
-    <a href="{{ route('todos.create') }}" class="btn btn-primary mb-3">Create Todo</a>
+    <div class="d-flex align-items-center mb-3">
+      <form id="quick-add-form" class="me-2" style="flex:1; max-width:640px;">
+        @csrf
+        <div class="input-group">
+          <input type="text" id="quick-add-input" name="title" class="form-control" placeholder="Add a new todo and press Enter" aria-label="New todo title">
+          <button class="btn btn-primary" type="submit">Create Todo</button>
+        </div>
+      </form>
+      <!-- full-create link intentionally removed to keep quick-add only -->
+    </div>
 
     <ul class="list-group">
         @forelse($todos as $todo)
@@ -22,19 +31,28 @@
                     </form>
                     <span class="todo-title {{ $todo->completed ? 'completed' : '' }}">{{ $todo->title }}</span>
                 </div>
-                <div>
-                    <button type="button" class="btn btn-sm btn-secondary todo-edit-btn"
-                        data-id="{{ $todo->id }}"
-                        data-title="{{ e($todo->title) }}"
-                        data-completed="{{ $todo->completed ? 1 : 0 }}"
-                        data-action="{{ route('todos.update', $todo) }}">
-                        Edit
+                <div class="d-flex gap-2">
+                  <button type="button" class="btn btn-sm btn-outline-secondary todo-edit-btn" title="Edit" aria-label="Edit todo"
+                    data-id="{{ $todo->id }}"
+                    data-title="{{ e($todo->title) }}"
+                    data-completed="{{ $todo->completed ? 1 : 0 }}"
+                    data-action="{{ route('todos.update', $todo) }}">
+                    {{-- pencil icon (inline SVG) --}}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil" viewBox="0 0 16 16">
+                      <path d="M12.146.146a.5.5 0 0 1 .708 0l2.0 2a.5.5 0 0 1 0 .708l-9.793 9.793-2.5.5a.5.5 0 0 1-.606-.606l.5-2.5L12.146.146zM11.207 2L3 10.207V13h2.793L14 4.793 11.207 2z"/>
+                    </svg>
+                  </button>
+
+                  <form method="POST" action="{{ route('todos.destroy', $todo) }}" style="display:inline" class="todo-delete-form">
+                    @csrf
+                    @method('DELETE')
+                    <button class="btn btn-sm btn-outline-danger" title="Delete" aria-label="Delete todo">
+                      {{-- trash icon (inline SVG) --}}
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
+                        <path d="M5.5 5.5A.5.5 0 0 1 6 5h4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H6a.5.5 0 0 1-.5-.5v-7zM14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 1 1 0-2H5l1-1h4l1 1h3.5a1 1 0 0 1 1 1z"/>
+                      </svg>
                     </button>
-                    <form method="POST" action="{{ route('todos.destroy', $todo) }}" style="display:inline" class="todo-delete-form">
-                        @csrf
-                        @method('DELETE')
-                        <button class="btn btn-sm btn-danger">Delete</button>
-                    </form>
+                  </form>
                 </div>
             </li>
         @empty
